@@ -166,7 +166,9 @@ def upload():
         }), 201
 
     except Exception as e:
+        import traceback
         print(f"[{file_id}] ❌ Upload error: {e}")
+        traceback.print_exc() 
         return jsonify({"error": str(e)}), 500
 
 
@@ -263,7 +265,7 @@ def delete_file(file_id):
 if __name__ == "__main__":
     port = int(os.getenv("FLASK_PORT", 5000))
     print("=" * 50)
-    print(f"🚀 Cloud Storage API starting on port {port}")
+    print(f" Cloud Storage API starting on port {port}")
     print(f"   Visit: http://localhost:{port}/api/ping")
     print("=" * 50)
     app.run(host="0.0.0.0", port=port, debug=True)
