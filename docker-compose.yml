@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  # ── Flask Backend API ──────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cloudstorage-api
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONPATH=/app
+    env_file:
+      - .env
+    volumes:
+      # Mount code so you can edit without rebuilding the image
+      - ./backend:/app/backend
+      - ./security:/app/security
+      - ./storage:/app/storage
+    restart: unless-stopped
+
+  # ── React Frontend ─────────────────────────────────────────
+  frontend:
+    image: node:20-alpine
+    container_name: cloudstorage-frontend
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install && npm start"
+    environment:
+      - REACT_APP_API_URL=http://localhost:5000
+      - CHOKIDAR_USEPOLLING=true   # needed for hot-reload inside Docker on Windows
+    depends_on:
+      - backend
+    restart: unless-stopped
