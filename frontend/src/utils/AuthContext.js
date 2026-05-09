@@ -1,5 +1,5 @@
 // frontend/src/utils/AuthContext.js
-// Provides login/logout state to every component in the app.
+// Provides login/logout/signup state to every component in the app.
 // Uses Cognito via AWS Amplify when configured,
 // OR a simple dev-mode login when Cognito is not set up yet.
 
@@ -26,7 +26,7 @@ export function AuthProvider({ children }) {
     setLoading(false);
   }, []);
 
-  // ── DEV MODE LOGIN (no real Cognito) ──────────────────────
+  // ── DEV MODE LOGIN ─────────────────────────────────────────
   const devLogin = (username, password) => {
     if (!username || !password) {
       setError('Please enter a username and password.');
@@ -40,21 +40,35 @@ export function AuthProvider({ children }) {
     return true;
   };
 
+  // ── DEV MODE SIGNUP ────────────────────────────────────────
+  const devSignup = (username, password) => {
+    if (!username || !password) {
+      setError('Please fill in all fields.');
+      return { success: false };
+    }
+    const token = `dev-${username}`;
+    localStorage.setItem('auth_token',    token);
+    localStorage.setItem('auth_username', username);
+    setUser({ username, token });
+    setError('');
+    return { success: true };
+  };
+
   // ── COGNITO LOGIN ──────────────────────────────────────────
   const cognitoLogin = async (username, password) => {
     try {
-      // Dynamic import — only load Amplify if Cognito is configured
       const { Amplify } = await import('aws-amplify');
-      const { signIn }  = await import('aws-amplify/auth');
+      const { signIn, signOut } = await import('aws-amplify/auth');
 
       Amplify.configure({
-        Auth: {
-          Cognito: {
-            userPoolId:       POOL_ID,
-            userPoolClientId: CLIENT_ID,
-          }
-        }
+        Auth: { Cognito: { userPoolId: POOL_ID, userPoolClientId: CLIENT_ID } }
       });
+
+      // Always clear any stale Amplify session first.
+      // Without this, Amplify throws "There is already a signed in user"
+      // if a previous session wasn't cleanly terminated (e.g. tab closed,
+      // token expired, or logout only cleared localStorage).
+      try { await signOut(); } catch (_) { /* no active session — that's fine */ }
 
       const result = await signIn({ username, password });
       if (result.isSignedIn) {
@@ -74,22 +88,74 @@ export function AuthProvider({ children }) {
     }
   };
 
+  // ── COGNITO SIGNUP ─────────────────────────────────────────
+  const cognitoSignup = async (username, password, email) => {
+    try {
+      const { Amplify } = await import('aws-amplify');
+      const { signUp }  = await import('aws-amplify/auth');
+
+      Amplify.configure({
+        Auth: { Cognito: { userPoolId: POOL_ID, userPoolClientId: CLIENT_ID } }
+      });
+
+      await signUp({
+        username,
+        password,
+        options: { userAttributes: { email } },
+      });
+
+      setError('');
+      return { success: true, needsConfirmation: true };
+    } catch (err) {
+      setError(err.message || 'Signup failed');
+      return { success: false };
+    }
+  };
+
+  // ── COGNITO CONFIRM SIGNUP (verify email code) ─────────────
+  const confirmSignup = async (username, code) => {
+    try {
+      const { confirmSignUp } = await import('aws-amplify/auth');
+      await confirmSignUp({ username, confirmationCode: code });
+      setError('');
+      return { success: true };
+    } catch (err) {
+      setError(err.message || 'Confirmation failed');
+      return { success: false };
+    }
+  };
+
   const login = async (username, password) => {
     setError('');
-    if (IS_DEV) {
-      return devLogin(username, password);
-    }
+    if (IS_DEV) return devLogin(username, password);
     return cognitoLogin(username, password);
   };
 
-  const logout = () => {
+  const signup = async (username, password, email) => {
+    setError('');
+    if (IS_DEV) return devSignup(username, password);
+    return cognitoSignup(username, password, email);
+  };
+
+  // ── LOGOUT ─────────────────────────────────────────────────
+  const logout = async () => {
+    // Clear our own state first
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_username');
     setUser(null);
+
+    // Also tell Amplify to sign out so its internal session is fully cleared.
+    // Without this, the next login attempt hits "There is already a signed in user".
+    if (!IS_DEV) {
+      try {
+        const { signOut } = await import('aws-amplify/auth');
+        await signOut();
+      } catch (_) { /* already signed out — ignore */ }
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, error, setError, IS_DEV }}>
+    <AuthContext.Provider value={{ user, login, logout, signup, confirmSignup, loading, error, setError, IS_DEV }}>
       {children}
     </AuthContext.Provider>
   );
