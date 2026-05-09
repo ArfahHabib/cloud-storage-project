@@ -1,12 +1,13 @@
 // frontend/src/components/UploadZone.js
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { uploadFile } from '../utils/api';
 
 export default function UploadZone({ onUploadSuccess }) {
   const [dragging,  setDragging]  = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState(0);
-  const [status,    setStatus]    = useState('');  // success/error message
+  const [rate,      setRate]      = useState('');
+  const [status,    setStatus]    = useState('');
   const [isError,   setIsError]   = useState(false);
   const inputRef = useRef();
 
@@ -25,11 +26,15 @@ export default function UploadZone({ onUploadSuccess }) {
   const handleUpload = async (file) => {
     setUploading(true);
     setProgress(0);
+    setRate('');
     setStatus('');
     setIsError(false);
 
     try {
-      const result = await uploadFile(file, (pct) => setProgress(pct));
+      const result = await uploadFile(file, (pct, rateStr) => {
+        setProgress(pct);
+        setRate(rateStr || '');
+      });
       setStatus(`✅ "${result.file_name}" encrypted and uploaded across ${result.total_shards} shards!`);
       setIsError(false);
       onUploadSuccess && onUploadSuccess(result);
@@ -39,6 +44,7 @@ export default function UploadZone({ onUploadSuccess }) {
     } finally {
       setUploading(false);
       setProgress(0);
+      setRate('');
       if (inputRef.current) inputRef.current.value = '';
     }
   };
@@ -53,6 +59,12 @@ export default function UploadZone({ onUploadSuccess }) {
     transition: 'all 0.2s',
     boxShadow: dragging ? 'var(--shadow-glow)' : 'none',
   };
+
+  const phaseLabel = progress < 80
+    ? `Uploading... ${progress}%${rate ? `  ·  ${rate}` : ''}`
+    : progress < 100
+    ? `Encrypting & storing shards... ${progress}%`
+    : 'Complete!';
 
   return (
     <div>
@@ -73,7 +85,7 @@ export default function UploadZone({ onUploadSuccess }) {
         {uploading ? (
           <div>
             <div style={{ fontFamily:'var(--font-mono)', fontSize:'13px', color:'var(--text-secondary)', marginBottom:'16px' }}>
-              Encrypting & uploading... {progress}%
+              {phaseLabel}
             </div>
             <div style={{ height:'4px', background:'var(--bg-elevated)', borderRadius:'2px', overflow:'hidden' }}>
               <div style={{

@@ -1,62 +1,66 @@
 // frontend/src/utils/api.js
-// All HTTP calls to the Flask backend go through here.
-
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-// ── Get the stored auth token ────────────────────────────────
 function getToken() {
   return localStorage.getItem('auth_token') || '';
 }
-
 function authHeaders() {
-  return {
-    'Authorization': `Bearer ${getToken()}`
-  };
+  return { 'Authorization': `Bearer ${getToken()}` };
 }
 
-// ── Ping (no auth needed) ────────────────────────────────────
 export async function ping() {
   const res = await fetch(`${API_URL}/api/ping`);
   return res.json();
 }
 
-// ── Get S3 bucket health ─────────────────────────────────────
 export async function getHealth() {
-  const res = await fetch(`${API_URL}/api/health`, {
-    headers: authHeaders()
-  });
+  const res = await fetch(`${API_URL}/api/health`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Health check failed');
   return res.json();
 }
 
-// ── List all files for current user ─────────────────────────
 export async function listFiles() {
-  const res = await fetch(`${API_URL}/api/files`, {
-    headers: authHeaders()
-  });
+  const res = await fetch(`${API_URL}/api/files`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to fetch files');
   return res.json();
 }
 
-// ── Upload a file ────────────────────────────────────────────
+// Upload with two-phase progress:
+//   0–80%  = actual network upload to server
+//   80–99% = server-side processing (timed estimate)
+//   100%   = server responded OK
 export async function uploadFile(file, onProgress) {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append('file', file);
 
     const xhr = new XMLHttpRequest();
+    let processingTimer = null;
+    const startTime = Date.now();
 
-    // Track upload progress
-    if (onProgress) {
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          onProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      };
-    }
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const networkPct = Math.round((e.loaded / e.total) * 80);
+      const elapsed    = (Date.now() - startTime) / 1000; // seconds
+      const rateMBps   = elapsed > 0 ? (e.loaded / elapsed) / (1024 * 1024) : 0;
+      const rateStr    = rateMBps > 0.1 ? `${rateMBps.toFixed(1)} MB/s` : '';
+      onProgress?.(networkPct, rateStr);
+
+      if (e.loaded === e.total) {
+        let fake = 80;
+        processingTimer = setInterval(() => {
+          fake = Math.min(fake + 1, 99);
+          onProgress?.(fake, 'processing...');
+          if (fake >= 99) clearInterval(processingTimer);
+        }, 300);
+      }
+    };
 
     xhr.onload = () => {
+      clearInterval(processingTimer);
+      onProgress?.(100);
       if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100, '');
         resolve(JSON.parse(xhr.responseText));
       } else {
         const err = JSON.parse(xhr.responseText || '{}');
@@ -64,7 +68,10 @@ export async function uploadFile(file, onProgress) {
       }
     };
 
-    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.onerror = () => {
+      clearInterval(processingTimer);
+      reject(new Error('Network error during upload'));
+    };
 
     xhr.open('POST', `${API_URL}/api/upload`);
     xhr.setRequestHeader('Authorization', `Bearer ${getToken()}`);
@@ -72,7 +79,6 @@ export async function uploadFile(file, onProgress) {
   });
 }
 
-// ── Download a file ──────────────────────────────────────────
 export async function downloadFile(fileId, fileName) {
   const res = await fetch(`${API_URL}/api/download/${fileId}`, {
     headers: authHeaders()
@@ -83,7 +89,6 @@ export async function downloadFile(fileId, fileName) {
     throw new Error(err.error || 'Download failed');
   }
 
-  // Convert response to a downloadable blob
   const blob = await res.blob();
   const url  = window.URL.createObjectURL(blob);
   const a    = document.createElement('a');
@@ -95,10 +100,9 @@ export async function downloadFile(fileId, fileName) {
   window.URL.revokeObjectURL(url);
 }
 
-// ── Delete a file ────────────────────────────────────────────
 export async function deleteFile(fileId) {
   const res = await fetch(`${API_URL}/api/files/${fileId}`, {
-    method:  'DELETE',
+    method: 'DELETE',
     headers: authHeaders()
   });
   if (!res.ok) {
@@ -108,20 +112,17 @@ export async function deleteFile(fileId) {
   return res.json();
 }
 
-// ── Format bytes to human readable ──────────────────────────
 export function formatBytes(bytes) {
-  if (!bytes) return '0 B';
+  if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-// ── Format ISO date to readable ──────────────────────────────
 export function formatDate(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', {
+  return new Date(iso).toLocaleDateString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit'
   });

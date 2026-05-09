@@ -7,8 +7,8 @@ import { listFiles, formatBytes } from '../utils/api';
 import { useAuth } from '../utils/AuthContext';
 
 export default function DashboardPage() {
-  const { user }              = useAuth();
-  const [files,    setFiles]  = useState([]);
+  const { user }               = useAuth();
+  const [files,    setFiles]   = useState([]);
   const [loading,  setLoading] = useState(true);
   const [fetchErr, setFetchErr] = useState('');
 
@@ -17,11 +17,16 @@ export default function DashboardPage() {
     setFetchErr('');
     try {
       const data = await listFiles();
-      // Sort newest first
       const sorted = (data.files || []).sort((a, b) =>
         new Date(b.uploadedAt) - new Date(a.uploadedAt)
       );
-      setFiles(sorted);
+      // Coerce fileSize and totalShards to numbers in case DynamoDB returns strings
+      const normalized = sorted.map(f => ({
+        ...f,
+        fileSize:    Number(f.fileSize)    || 0,
+        totalShards: Number(f.totalShards) || 0,
+      }));
+      setFiles(normalized);
     } catch (err) {
       setFetchErr(err.message);
     } finally {
@@ -31,18 +36,11 @@ export default function DashboardPage() {
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
-  const handleUploaded = (result) => {
-    // Reload the file list after a new upload
-    loadFiles();
-  };
+  const handleUploaded = () => loadFiles();
+  const handleDeleted  = (fileId) => setFiles(prev => prev.filter(f => f.fileId !== fileId));
 
-  const handleDeleted = (fileId) => {
-    setFiles(prev => prev.filter(f => f.fileId !== fileId));
-  };
-
-  // Stats
-  const totalSize   = files.reduce((sum, f) => sum + (f.fileSize || 0), 0);
-  const totalShards = files.reduce((sum, f) => sum + (f.totalShards || 0), 0);
+  const totalSize   = files.reduce((sum, f) => sum + f.fileSize,    0);
+  const totalShards = files.reduce((sum, f) => sum + f.totalShards, 0);
 
   const page  = { minHeight:'100vh', background:'var(--bg-deep)' };
   const main  = { maxWidth:'1100px', margin:'0 auto', padding:'32px 24px' };
@@ -65,7 +63,6 @@ export default function DashboardPage() {
     <div style={page}>
       <Navbar />
       <div style={main}>
-        {/* Header */}
         <div style={{ marginBottom:'28px' }}>
           <h1 style={{ fontSize:'22px', fontWeight:700, fontFamily:'var(--font-mono)', color:'var(--text-primary)' }}>
             Welcome back, {user?.username}
@@ -75,14 +72,12 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Stats */}
         <div style={stats}>
-          {stat('Total Files',   files.length, 'in your vault')}
-          {stat('Storage Used',  formatBytes(totalSize), 'across both regions')}
-          {stat('Total Shards',  totalShards, 'distributed in S3')}
+          {stat('Total Files',  files.length,          'in your vault')}
+          {stat('Storage Used', formatBytes(totalSize), 'across both regions')}
+          {stat('Total Shards', totalShards,            'distributed in S3')}
         </div>
 
-        {/* Upload */}
         <div style={{
           background:'var(--bg-card)', border:'1px solid var(--border)',
           borderRadius:'var(--radius)', padding:'24px', marginBottom:'24px',
@@ -93,7 +88,6 @@ export default function DashboardPage() {
           <UploadZone onUploadSuccess={handleUploaded} />
         </div>
 
-        {/* File list */}
         <div>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'12px' }}>
             <h2 style={{ fontSize:'15px', fontWeight:600, color:'var(--text-primary)' }}>
