@@ -24,7 +24,7 @@ from backend.auth          import verify_token, get_user_id_from_token
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 
 def get_current_user():
