@@ -1,7 +1,7 @@
 """
 backend/auth.py
 ===============
-ABDULLAH WAHEED — Authentication (AWS Cognito JWT Verification)
+Anila Kiran — Authentication (AWS Cognito JWT Verification)
 
 Every API request includes a JWT token issued by AWS Cognito.
 This module verifies that token is:
