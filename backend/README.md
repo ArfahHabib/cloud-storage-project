@@ -1,4 +1,4 @@
-# Backend API — Abdullah Waheed
+# Backend API — Anila Kiran
 
 ## Setup
 ```bash
