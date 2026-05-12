@@ -1,7 +1,7 @@
 """
 backend/database.py
 ===================
-ABDULLAH WAHEED — Database Layer
+Anila kiran — Database Layer
 
 This module handles all DynamoDB operations:
 - Saving file metadata and shard manifests after upload
